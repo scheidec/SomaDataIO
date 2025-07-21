@@ -148,6 +148,7 @@ write_adat <- function(x, file) {
 .checkADAT <- function(adat) {
   atts <- attributes(adat)
   apts <- getAnalytes(adat)
+  col_meta_seqids <- atts$Col.Meta |> dplyr::filter(is.SeqId(SeqId))
   meta <- getMeta(adat)
   idx  <- grep("Name", names(atts$Header.Meta$ROW_DATA), ignore.case = TRUE)
   stopifnot(length(idx) == 1L)
@@ -158,14 +159,14 @@ write_adat <- function(x, file) {
       "Check `attributes(ADAT)$Header.Meta$ROW_DATA$Name`.", call. = FALSE
     )
   }
-  if ( length(apts) != nrow(atts$Col.Meta) ) {
+  if ( length(apts) != nrow(col_meta_seqids) ) {
     stop(
       "Number of RFU features in ADAT does not match No. analytes in Col.Meta!",
       call. = FALSE
     )
   }
-  if ( setequal(getSeqId(apts), atts$Col.Meta$SeqId) &&     # set equal
-       !identical(getSeqId(apts), atts$Col.Meta$SeqId) ) {  # but not identical
+  if ( setequal(getSeqId(apts), col_meta_seqids$SeqId) &&     # set equal
+       !identical(getSeqId(apts), col_meta_seqids$SeqId) ) {  # but not identical
     stop(
       "ADAT features are out of sync with rows in Col.Meta!\n",
       "You may need to run `syncColMeta()` to re-sync the Col.Meta, ",

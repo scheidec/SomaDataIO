@@ -79,8 +79,21 @@ read_adat <- function(file, debug = FALSE, verbose = getOption("verbose"), ...) 
     row_meta <- c(row_meta, "blank_col")  # Add empty column name in >= v1.0
   }
 
-  apt_names <- getSeqId(header_data$Col.Meta$SeqId, trim.version = TRUE) |>
+  # Get SeqId cols, convert to AptNames ----
+  seq_ids <- header_data$Col.Meta$SeqId
+
+  # with standard SeqId format
+  seq_t_ind <- which(is.SeqId(seq_ids) == TRUE)
+  standard_apt_names <- getSeqId(seq_ids[seq_t_ind], trim.version = TRUE) |>
     seqid2apt()
+
+  # with non-standard format - prepend "seq."
+  seq_f_ind <- which(is.SeqId(seq_ids) == FALSE)
+  non_standard_apt_names <- paste0("seq.", seq_ids[seq_f_ind])
+
+  apt_names <- seq_ids |>
+    replace(seq_t_ind, standard_apt_names) |>
+    replace(seq_f_ind, non_standard_apt_names)
 
   ncols <- length(row_meta) + length(apt_names)
 
