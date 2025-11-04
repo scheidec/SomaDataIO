@@ -1,3 +1,17 @@
+# SomaDataIO (6.5.0.9000)
+
+### New Functions
+
+* Added `medianNormalize()` function
+  - performs median normalization on `soma_adat` objects that have been 
+    hybridization normalized and plate scaled
+  - includes validation to ensure required normalization steps have been applied
+  - supports multiple reference approaches:
+    - Internal reference built from study samples by specified field/values
+    - Reference extracted from existing `soma_adat` object
+    - External reference as a data.frame
+  - supports custom grouping by multiple clinical variables
+
 # SomaDataIO (6.5.0)
 
 ### Function and Object Improvements
@@ -23,7 +37,7 @@
 
 * Updated `dplyr` verb tests to no longer explicitly test
   for ordering of attributes (#165)
-
+  
 # SomaDataIO (6.4.0)
 
 ### New Functions
