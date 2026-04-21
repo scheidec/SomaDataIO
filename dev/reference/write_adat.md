@@ -70,5 +70,5 @@ is_intact_attr(adat_out)
 
 write_adat(adat_out, file = tempfile(fileext = ".adat"))
 #> ✔ ADAT passed all checks and traps.
-#> ✔ ADAT written to: "/var/folders/qm/fcgtnjr57d7bvztxwhtddp7m0000gn/T//RtmpRKt069/file1afc2d65d181.adat"
+#> ✔ ADAT written to: "/var/folders/nt/8s45mzm536g3k_v8f70g2gd80000gn/T//RtmpKcyKUN/file1b717f1c5a4f.adat"
 ```
