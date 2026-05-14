@@ -72,6 +72,14 @@ test_that("`medianNormalize` Method 1: Internal reference (default)", {
   expect_true(grepl("MedNormSMP", result_header$ProcessSteps))
   expect_equal(result_header$NormalizationAlgorithm, "MedNorm")
   expect_true(grepl("intraplate, crossplate", result_header$MedNormReference))
+
+  # Check that Col.Meta does not have AptName column added
+  col_meta <- attr(result, "Col.Meta")
+  expect_false(any(c("AptName") %in% names(col_meta)))
+
+  # Check that analyte info does not have duplicate AptName columns
+  analyte_info <- getAnalyteInfo(result)
+  expect_false(any(c("AptName.x", "AptName.y") %in% names(analyte_info)))
 })
 
 test_that("`medianNormalize` Method 2: Reference from another ADAT", {
