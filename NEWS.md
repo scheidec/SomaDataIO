@@ -1,3 +1,13 @@
+# SomaDataIO 6.6.0.9000
+
+### Function and Object Improvements
+
+* Fixed bug in `medianNormalize()` related to addition of `AptName` column
+  in returned `Col.Meta` attribute
+  - internal `.addMedNormReference()` now updates `Col.Meta` directly 
+    rather than using `getAnalyteInfo()`, which returns an `AptName` column;
+    this avoids duplication in downstream function calls to `getAnalyteInfo()`
+
 # SomaDataIO 6.6.0
 
 ### New Functions

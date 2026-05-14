@@ -824,8 +824,13 @@ medianNormalize <- function(adat,
 #' @noRd
 .addMedNormReference <- function(adat, ref_data, dil_groups) {
 
-  # Get analyte info
-  apt_data <- getAnalyteInfo(adat)
+  # Get analyte metadata directly
+  apt_data <- attr(adat, "Col.Meta")
+  analyte_info <- getAnalyteInfo(adat)
+
+  if (is.null(apt_data)) {
+    return(adat)  # No Col.Meta to update
+  }
 
   # Initialize the column if it doesn't exist
   if (!"medNormSMP_ReferenceRFU" %in% names(apt_data)) {
@@ -836,7 +841,8 @@ medianNormalize <- function(adat,
   if (!is.null(ref_data)) {
     for (dil_name in names(dil_groups)) {
       if (dil_name %in% names(ref_data)) {
-        dil_apts <- intersect(dil_groups[[dil_name]], getAnalytes(adat))
+        # Get aptamer names in this dilution group
+        dil_apts <- dil_groups[[dil_name]]
 
         if (length(dil_apts) > 0) {
           ref_values <- ref_data[[dil_name]]
@@ -845,27 +851,24 @@ medianNormalize <- function(adat,
           if (is.numeric(ref_values) && length(ref_values) == 1) {
             # Single reference value for the whole dilution group (round to 2 decimal places)
             rounded_value <- round(ref_values, 2)
-            apt_data$medNormSMP_ReferenceRFU[apt_data$AptName %in% dil_apts] <- rounded_value
+            # Update rows where AptName matches dilution aptamers
+            apt_data$medNormSMP_ReferenceRFU[analyte_info$AptName %in% dil_apts] <- rounded_value
           } else if (is.numeric(ref_values) && length(ref_values) > 1) {
             # Aptamer-specific reference values (round to 2 decimal places)
             for (apt in dil_apts) {
               if (apt %in% names(ref_values)) {
                 rounded_value <- round(ref_values[apt], 2)
-                apt_data$medNormSMP_ReferenceRFU[apt_data$AptName == apt] <- rounded_value
+                # Find row with matching AptName and update
+                apt_data$medNormSMP_ReferenceRFU[analyte_info$AptName == apt] <- rounded_value
               }
             }
           }
         }
       }
     }
-
-    # Update the analyte metadata
-    attr(adat, "Col.Meta") <- apt_data
   }
 
+  # Update the analyte metadata
+  attr(adat, "Col.Meta") <- apt_data
   invisible(adat)
 }
-
-
-
-
