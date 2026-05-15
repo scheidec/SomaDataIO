@@ -489,5 +489,5 @@ is_intact_attr(my_adat)   # MUST have intact attrs
 
 write_adat(my_adat, file = tempfile("my-adat-", fileext = ".adat"))
 #> ✔ ADAT passed all checks and traps.
-#> ✔ ADAT written to: "/var/folders/k4/_09nqs851t35bpkk8lr_p43c0000gn/T//Rtmp5mAVG4/my-adat-737150a3aed3.adat"
+#> ✔ ADAT written to: "/var/folders/k4/_09nqs851t35bpkk8lr_p43c0000gn/T//Rtmpc6C4at/my-adat-28e05690f3af.adat"
 ```
