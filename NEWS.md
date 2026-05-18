@@ -1,6 +1,6 @@
-# SomaDataIO 6.6.0.9000
+# SomaDataIO 6.6.1
 
-### Function and Object Improvements
+### Bug Fixes
 
 * Fixed bug in `medianNormalize()` related to addition of `AptName` column
   in returned `Col.Meta` attribute
