@@ -9,6 +9,11 @@
 #' @name SomaScanObjects
 #' @aliases example_data ex_analytes ex_anno_tbl ex_target_names ex_clin_data
 #' @docType data
+#' @export example_data
+#' @export ex_analytes
+#' @export ex_anno_tbl
+#' @export ex_target_names
+#' @export ex_clin_data
 #'
 #' @section Data Description:
 #'   The `example_data` object contains a SomaScan V4 study from healthy
