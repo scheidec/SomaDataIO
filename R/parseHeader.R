@@ -16,7 +16,7 @@
 #'   information that is included in the adat output along with the RFU data}
 #' @author Stu Field
 #' @examples
-#' f <- system.file("extdata", "example_data10.adat",
+#' f <- system.file("extdata", "example_data3.adat",
 #'                  package = "SomaDataIO", mustWork = TRUE)
 #' header <- parseHeader(f)
 #' names(header)

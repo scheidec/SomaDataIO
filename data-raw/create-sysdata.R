@@ -9,7 +9,6 @@
 #
 # Objects stored in sysdata.rda:
 #   - original_example_data_full: Complete example SomaScan data (192 samples)
-#   - original_v4_seqids: All 5284 V4 SeqId names
 #   - lift_master: Bridging data for cross-platform normalization
 #
 # Note: Only re-run this script if you need to update the internal data from a
@@ -47,20 +46,7 @@ cat("  Dimensions:", dim(original_example_data_full), "\n")
 cat("  Sample breakdown:", table(original_example_data_full$SampleType), "\n")
 
 
-# Step 2: Extract V4 SeqIds
-# ------------------------------------------------------------------------------
-# Store all original V4 SeqId names for reference
-cat("\nExtracting V4 SeqIds...\n")
-original_v4_seqids <- getAnalytes(original_example_data_full)
-
-stopifnot(
-  "Expected 5284 analytes" = length(original_v4_seqids) == 5284
-)
-
-cat("  Number of SeqIds:", length(original_v4_seqids), "\n")
-
-
-# Step 3: Load lift_master data
+# Step 2: Load lift_master data
 # ------------------------------------------------------------------------------
 # The lift_master object is used for cross-platform normalization
 # This should already exist in the current sysdata.rda if this is an update
@@ -80,14 +66,13 @@ if (file.exists("R/sysdata.rda")) {
 }
 
 
-# Step 4: Create R/sysdata.rda
+# Step 3: Create R/sysdata.rda
 # ------------------------------------------------------------------------------
 cat("\nCreating R/sysdata.rda...\n")
 
 # Save all internal objects with xz compression (best compression ratio)
 save(
   original_example_data_full,
-  original_v4_seqids,
   lift_master,
   file = "R/sysdata.rda",
   compress = "xz",
@@ -101,30 +86,26 @@ cat("  File created:", sysdata_info$size / (1024^2), "MB\n")
 cat("\nObject sizes (uncompressed):\n")
 cat("  original_example_data_full:",
     format(object.size(original_example_data_full), units = "MB"), "\n")
-cat("  original_v4_seqids:",
-    format(object.size(original_v4_seqids), units = "KB"), "\n")
 cat("  lift_master:",
     format(object.size(lift_master), units = "KB"), "\n")
 
 
-# Step 5: Verify the created file
+# Step 4: Verify the created file
 # ------------------------------------------------------------------------------
 cat("\nVerifying sysdata.rda...\n")
 
 # Clear environment and reload
-rm(original_example_data_full, original_v4_seqids, lift_master)
+rm(original_example_data_full, lift_master)
 load("R/sysdata.rda")
 
 # Verify all objects exist
 stopifnot(
   "original_example_data_full missing" = exists("original_example_data_full"),
-  "original_v4_seqids missing" = exists("original_v4_seqids"),
   "lift_master missing" = exists("lift_master")
 )
 
 # Verify data integrity
 stopifnot(
   "Data dimensions incorrect" = identical(dim(original_example_data_full), c(192L, 5318L)),
-  "SeqIds count incorrect" = length(original_v4_seqids) == 5284,
   "Class incorrect" = is.soma_adat(original_example_data_full)
 )
