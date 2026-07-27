@@ -1,7 +1,7 @@
 #' Create Example SomaScan Data
 #'
 #' Creates a `soma_adat` object for examples, testing, and demonstrations.
-#' This function returns the original example_data either in full or as a
+#' This function returns the original `example_data` either in full or as a
 #' minimal 10-sample subset for faster execution.
 #'
 #' @param size Character. Either `"full"` (default, 192 samples) or `"minimal"`
@@ -11,7 +11,7 @@
 #'   \itemize{
 #'     \item **Full**: 192 samples (170 clinical, 10 calibrators, 6 QC, 6 buffer)
 #'     \item **Minimal**: 10 samples (first 10 from full dataset)
-#'     \item 5284 analyte features (seq.XXXX.XX format)
+#'     \item 5284 analyte features (`seq.XXXX.XX` format)
 #'     \item 34 metadata columns
 #'     \item Proper `soma_adat` attributes (Header.Meta, Col.Meta, file_specs, etc.)
 #'   }
@@ -24,7 +24,7 @@
 #'   \item Age and Sex variables contain simulated biological signal
 #'   \item RFU values from real SomaScan assay data
 #'   \item All proper ADAT attributes and metadata are included
-#'   \item Data is stored internally in sysdata for instant access
+#'   \item Data is stored internally in `sysdata` for instant access
 #' }
 #'
 #' @note This function replaces the static `example_data` package data object.
@@ -68,7 +68,7 @@ create_example_data <- function(size = c("full", "minimal")) {
 #'
 #' @param example_data Optional. A `soma_adat` object. If `NULL`, will create
 #'   a full example dataset using `create_example_data("full")`.
-#' @return A character vector of analyte names (seq.XXXX.XX format).
+#' @return A character vector of analyte names (`seq.XXXX.XX` format).
 #' @seealso [create_example_data()], [getAnalytes()]
 #' @examples
 #' apts <- create_ex_analytes()
@@ -111,7 +111,8 @@ create_ex_anno_tbl <- function(example_data = NULL) {
 #'
 #' @param example_data Optional. A `soma_adat` object. If `NULL`, will create
 #'   a full example dataset using `create_example_data("full")`.
-#' @return A named list mapping SeqId feature names to target protein names.
+#' @return A named list of class `target_map` mapping SeqId feature names to
+#'   target protein names.
 #' @seealso [create_example_data()], [getTargetNames()]
 #' @examples
 #' targets <- create_ex_target_names()

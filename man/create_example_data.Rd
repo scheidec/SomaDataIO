@@ -16,14 +16,14 @@ A \code{soma_adat} object with:
 \itemize{
 \item \strong{Full}: 192 samples (170 clinical, 10 calibrators, 6 QC, 6 buffer)
 \item \strong{Minimal}: 10 samples (first 10 from full dataset)
-\item 5284 analyte features (seq.XXXX.XX format)
+\item 5284 analyte features (\code{seq.XXXX.XX} format)
 \item 34 metadata columns
 \item Proper \code{soma_adat} attributes (Header.Meta, Col.Meta, file_specs, etc.)
 }
 }
 \description{
 Creates a \code{soma_adat} object for examples, testing, and demonstrations.
-This function returns the original example_data either in full or as a
+This function returns the original \code{example_data} either in full or as a
 minimal 10-sample subset for faster execution.
 }
 \details{
@@ -35,7 +35,7 @@ The data includes:
 \item Age and Sex variables contain simulated biological signal
 \item RFU values from real SomaScan assay data
 \item All proper ADAT attributes and metadata are included
-\item Data is stored internally in sysdata for instant access
+\item Data is stored internally in \code{sysdata} for instant access
 }
 }
 \note{

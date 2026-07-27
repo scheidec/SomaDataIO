@@ -145,7 +145,7 @@ to run canned examples (or analyses). They can be accessed once
   ```
 
   - within `SomaDataIO` it has been replaced by an abbreviated,
-    light-weight version containing only the first 10 samples:
+    light-weight version containing only the first 3 samples:
 
     ``` r
     dir(system.file("extdata", package = "SomaDataIO"), full.names = TRUE)
@@ -187,8 +187,8 @@ to run canned examples (or analyses). They can be accessed once
 Loading an ADAT text file is simple using `read_adat()`:
 
 ``` r
-# Note: This `system.file()` command returns a filepath to the `example_data3` 
-# object in the `SomaDataIO` package
+# Note: This `system.file()` command returns a filepath to the `example_data3`
+# object in the `SomaDataIO` package, a minimal ADAT containing 3 samples
 adat_path <- system.file("extdata", "example_data3.adat",
                          package = "SomaDataIO", mustWork = TRUE)
 adat_path

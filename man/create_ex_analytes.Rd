@@ -11,7 +11,7 @@ create_ex_analytes(example_data = NULL)
 a full example dataset using \code{create_example_data("full")}.}
 }
 \value{
-A character vector of analyte names (seq.XXXX.XX format).
+A character vector of analyte names (\code{seq.XXXX.XX} format).
 }
 \description{
 Returns the analyte (feature) variable names from the example dataset.

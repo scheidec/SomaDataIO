@@ -76,6 +76,17 @@
 #'     `soma_adat` object.}
 #' }
 #'
+#' @section Example ADAT Files:
+#'   The package includes a minimal example ADAT file for testing and
+#'   documentation purposes:
+#'   \describe{
+#'     \item{`inst/extdata/example_data3.adat`}{A 3-sample subset of the original
+#'       example data (192 samples). This file contains the first 3 samples with
+#'       all 5,284 analyte features and complete ADAT header metadata. The small
+#'       size (< 1 MB) makes it ideal for parsing examples and unit tests.
+#'       Access via: `system.file("extdata", "example_data3.adat", package = "SomaDataIO")`}
+#'   }
+#'
 #' @source \url{https://github.com/SomaLogic/SomaLogic-Data}
 #' @source SomaLogic Operating Co., Inc.
 #' @keywords datasets

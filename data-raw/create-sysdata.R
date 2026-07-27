@@ -103,9 +103,13 @@ stopifnot(
   "original_example_data_full missing" = exists("original_example_data_full"),
   "lift_master missing" = exists("lift_master")
 )
+cat("  ✓ All required objects present\n")
 
 # Verify data integrity
 stopifnot(
   "Data dimensions incorrect" = identical(dim(original_example_data_full), c(192L, 5318L)),
   "Class incorrect" = is.soma_adat(original_example_data_full)
 )
+cat("  ✓ Data integrity verified\n")
+
+cat("\n✓ sysdata.rda successfully created and verified!\n")

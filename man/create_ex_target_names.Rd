@@ -11,7 +11,8 @@ create_ex_target_names(example_data = NULL)
 a full example dataset using \code{create_example_data("full")}.}
 }
 \value{
-A named list mapping SeqId feature names to target protein names.
+A named list of class \code{target_map} mapping SeqId feature names to
+target protein names.
 }
 \description{
 Returns a mapping of analyte names to target protein names from the
