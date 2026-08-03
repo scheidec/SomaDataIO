@@ -1,0 +1,1024 @@
+---
+title: "Median Normalization with SomaScan Data"
+author: "SomaScan Bioinformatics Team, SomaLogic, Inc."
+description: >
+  A guide to median normalization of SomaScan data, including when to use it,
+  how to apply it, and quality control considerations.
+output:
+  rmarkdown::html_vignette:
+    fig_caption: yes
+vignette: >
+  %\VignetteIndexEntry{Median Normalization with SomaScan Data}
+  %\VignetteEncoding{UTF-8}
+  %\VignetteEngine{knitr::rmarkdown}
+editor_options: 
+  chunk_output_type: console
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.path = "figures/median-normalization-",
+  fig.width = 7,
+  fig.height = 5
+)
+```
+
+## What is Median Normalization?
+
+Median normalization is a scale-based normalization technique commonly used
+to correct for assay-derived technical variation in SomaScan data. This method
+applies sample-specific linear scaling to expression measurements, helping to
+improve assay precision and reduce technical variation that can mask true
+biological signal.
+
+Median normalization corrects for global intensity shifts by scaling each sample
+so that the center of the within-sample analyte distribution aligns to a defined
+reference. This approach preserves relative differences between measurements
+within a sample while standardizing the overall signal intensity across samples.
+
+Median normalization is particularly useful for:
+
+- **Combining datasets** from the same experiment that were processed separately
+- **Re-normalizing data** to a common reference when merging studies  
+- **Normalizing sample groups separately** when biological differences are expected
+- **Correcting technical variation** from sources like liquid handling,
+  consumables, instrument drift, or environmental conditions
+
+**Note**: Median normalization assumes that the *majority of analytes are not differentially expressed* between comparison groups. Users must validate this assumption by inspecting scale factor distributions for systematic bias before proceeding with downstream analyses.
+
+With this assumption in mind, consider avoiding median normalization when:
+
+- A large proportion of analytes are expected to be differentially expressed
+- Comparing very different biological states (e.g., healthy vs. severe disease)
+- Small sample sizes where medians may be unstable (n < 10 per group)
+
+------------------------------------------------------------------------
+
+## Load Libraries
+
+```{r load-lib, message = FALSE}
+library(SomaDataIO)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+```
+
+------------------------------------------------------------------------
+
+## Data Preparation
+
+### Using Example Data
+
+We'll use the built-in `example_data` adat object included in `SomaDataIO`. 
+The `example_data` object contains `r nrow(example_data)` samples and
+`r length(getAnalytes(example_data))` analytes. It has already been processed
+through the standard SomaScan pipeline — the `ProcessSteps` recorded in its
+header are:
+
+```{r load-data-process-steps}
+attr(example_data, "Header.Meta")$HEADER$ProcessSteps
+```
+
+### Reversing Existing Normalization
+
+Note the processing steps show that the study samples have already undergone
+ANML normalization (`anmlSMP` as the final step). We will reverse this to 
+create unnormalized data that represents what customers typically receive after
+basic processing:
+
+```{r create-unnormalized}
+# Represents data after HybNorm and PlateScale, before median normalization
+unnormalized_adat <- reverseMedianNormalize(example_data)
+```
+
+`reverseMedianNormalize()` removes the median normalization step recorded in
+`ProcessSteps` and rescales the RFU values back to their pre-normalized state.
+The data dimensions are unchanged — only the RFU values and header metadata
+are affected. If your ADAT file has not been normalized yet, this step is not required.
+
+### Sample Information
+
+```{r sample-info}
+unnormalized_adat |> count(SampleType)
+```
+
+For most analyses we focus on `SampleType == "Sample"` rows. The dataset
+also includes demographic variables such as sex (`Sex`) and age (`Age`), which 
+will be used later to demonstrate group-specific normalization and biological 
+signal preservation.
+
+------------------------------------------------------------------------
+
+## Before You Begin
+
+Confirm your data is suitable for median normalization:
+
+- ADAT has complete metadata and valid analyte columns
+- Minimal upstream processing present (typically HybNorm + PlateScale)
+- Sufficient sample size for stable medians (n >= 10 per group recommended)
+- Most analytes expected to be unchanged across comparison groups
+
+Confirm which reference strategy is most appropriate for your data and planned analyses:
+
+- *Internal reference* (default): for single-study normalization
+- *External reference*: when anchoring multiple datasets to one target (see Advanced Options)
+- *Grouped normalization* (`by=`): when known biology may shift global intensity (see Advanced Options for validation guidance)
+
+Review scale factor acceptance criteria to assess the effects of normalization.
+See the [Pre-Processing SomaScan](pre-processing.html) vignette for more details.
+
+------------------------------------------------------------------------
+
+## Basic Usage
+
+The simplest approach uses an internal reference calculated from study samples:
+
+```{r basic-usage}
+normalized_adat <- medianNormalize(unnormalized_adat)
+```
+
+By default, `medianNormalize()` computes a per-dilution-group reference median
+across all study samples. Scale factors centered near 1.0 with low spread
+indicate successful normalization.
+
+```{r show-scale-factor-summary}
+scale_factor_cols <- grep("^NormScale_", names(normalized_adat), value = TRUE)
+normalized_adat[normalized_adat$SampleType == "Sample", scale_factor_cols] |>
+  vapply(FUN = summary, FUN.VALUE = numeric(6)) |>
+  t()
+```
+
+------------------------------------------------------------------------
+
+## Advanced Options
+
+### External Reference Normalization
+
+When combining datasets from different processing batches, normalize each to a 
+common external reference to ensure comparable results. The `reference` 
+parameter allows you to specify an external dataset whose median will be used 
+as the normalization anchor.
+
+For this example, we simulate two separate study batches by randomly splitting 
+the original data into two subsets:
+
+```{r multi-study-split}
+# Simulate two study batches
+set.seed(123)
+study1_indices <- sample(which(unnormalized_adat$SampleType == "Sample"), 
+                        size = floor(sum(unnormalized_adat$SampleType == "Sample") / 2))
+
+study1_data <- unnormalized_adat[study1_indices, ]
+study2_data <- unnormalized_adat[-study1_indices, ]
+```
+
+To ensure both studies are on the same scale, we use the full original 
+unnormalized dataset as the common external reference, which is passed to 
+`medianNormalize()` via the `reference` parameter:
+
+```{r multi-study-normalize}
+# Use the full unnormalized dataset as the common external reference
+reference_adat <- unnormalized_adat
+
+# Normalize both studies to the same external reference
+study1_norm <- medianNormalize(study1_data, reference = reference_adat)
+study2_norm <- medianNormalize(study2_data, reference = reference_adat)
+
+# Compare scale factors between studies
+study_comparison <- data.frame(
+  Study = c(rep("Study 1", nrow(study1_norm)),
+            rep("Study 2", nrow(study2_norm))),
+  ScaleFactor = c(study1_norm$NormScale_0_5,
+                  study2_norm$NormScale_0_5)
+)
+
+study_comparison |>
+  group_by(Study) |>
+  summarise(
+    n       = n(),
+    Mean_SF = round(mean(ScaleFactor, na.rm = TRUE), 3),
+    SD_SF   = round(sd(ScaleFactor, na.rm = TRUE), 3),
+    .groups = "drop"
+  ) |>
+  knitr::kable(caption = "Scale factor statistics by study (normalized to common reference)")
+```
+
+```{r multi-study-combine}
+# Combine the normalized studies for joint analysis
+combined_data <- rbind(study1_norm, study2_norm)
+```
+
+Using a common external reference ensures both studies are normalized to the
+same scale, making the data directly comparable when combined for analysis.
+With an external reference, scale factors reflect how each sample compares
+to the provided reference rather than an internal median.
+
+### Grouped Normalization
+
+When biological groups are expected to differ systematically (e.g., disease vs. 
+control, treatment vs. placebo), use the `by` parameter to normalize within 
+groups. This preserves known biological differences that would otherwise be 
+absorbed into a global reference median.
+
+#### When to Use Grouped Normalization
+
+Before using grouped normalization, validate whether your groups differ 
+substantially. Examine fold changes between your comparison groups on 
+*unnormalized* data. 
+
+**Decision criteria:**
+
+- **< 30% of analytes with >1.5-fold change**: Default pooled normalization is appropriate
+- **30-50% of analytes with >1.5-fold change**: Consider grouped normalization
+- **> 50% of analytes with >1.5-fold change**: Grouped normalization strongly recommended
+
+For demonstration purposes, we will use the built-in 
+binary categorical grouping variable `Sex` that is in the example data.
+
+<details>
+<summary>Show code</summary>
+```{r assumption-validation-1, echo = TRUE, eval = FALSE}
+# Get analytes from unnormalized data
+analytes <- getAnalytes(unnormalized_adat)
+
+# Check fold changes using Sex as an example grouping variable
+# IMPORTANT: Use unnormalized data for this check
+if("Sex" %in% names(unnormalized_adat)) {
+  study_data <- unnormalized_adat |> filter(SampleType == "Sample")
+  
+  # Calculate fold changes between sexes for all analytes
+  fold_changes <- sapply(analytes, function(analyte) {
+    male_vals <- study_data[[analyte]][study_data$Sex == "M"]
+    female_vals <- study_data[[analyte]][study_data$Sex == "F"]
+    
+    if(length(male_vals) > 0 && length(female_vals) > 0) {
+      male_median <- median(male_vals, na.rm = TRUE)
+      female_median <- median(female_vals, na.rm = TRUE)
+      return(male_median / female_median)
+    } else {
+      return(NA)
+    }
+  })
+  
+  fold_changes <- fold_changes[!is.na(fold_changes)]
+  
+  if(length(fold_changes) > 0) {
+    large_fc_prop <- mean(abs(log2(fold_changes)) > 0.585, na.rm = TRUE)
+    
+    fc_df <- data.frame(Log2_FC = log2(fold_changes))
+    
+    ggplot(fc_df, aes(x = Log2_FC)) +
+      geom_histogram(bins = 30, alpha = 0.7, fill = "steelblue") +
+      geom_vline(xintercept = 0, color = "red", linetype = "dashed", linewidth = 1) +
+      geom_vline(xintercept = c(-0.585, 0.585), color = "orange",
+                 linetype = "dashed", linewidth = 1) +
+      labs(title = "Distribution of Log2 Fold Changes (Male/Female)",
+           subtitle = "Red: no change, Orange: ±1.5-fold threshold",
+           x = "Log2 Fold Change",
+           y = "Count") +
+      xlim(-3, 3) +
+      theme_minimal()
+  }
+}
+```
+</details>
+
+```{r assumption-validation-2, echo = FALSE, warning = FALSE}
+# Get analytes from unnormalized data
+analytes <- getAnalytes(unnormalized_adat)
+
+# Check fold changes using Sex as an example grouping variable
+# IMPORTANT: Use unnormalized data for this check
+if("Sex" %in% names(unnormalized_adat)) {
+  study_data <- unnormalized_adat |> filter(SampleType == "Sample")
+  
+  # Calculate fold changes between sexes for all analytes
+  fold_changes <- sapply(analytes, function(analyte) {
+    male_vals <- study_data[[analyte]][study_data$Sex == "M"]
+    female_vals <- study_data[[analyte]][study_data$Sex == "F"]
+    
+    if(length(male_vals) > 0 && length(female_vals) > 0) {
+      male_median <- median(male_vals, na.rm = TRUE)
+      female_median <- median(female_vals, na.rm = TRUE)
+      return(male_median / female_median)
+    } else {
+      return(NA)
+    }
+  })
+  
+  fold_changes <- fold_changes[!is.na(fold_changes)]
+  
+  if(length(fold_changes) > 0) {
+    large_fc_prop <- mean(abs(log2(fold_changes)) > 0.585, na.rm = TRUE)
+    
+    fc_df <- data.frame(Log2_FC = log2(fold_changes))
+    
+    ggplot(fc_df, aes(x = Log2_FC)) +
+      geom_histogram(bins = 30, alpha = 0.7, fill = "steelblue") +
+      geom_vline(xintercept = 0, color = "red", linetype = "dashed", linewidth = 1) +
+      geom_vline(xintercept = c(-0.585, 0.585), color = "orange",
+                 linetype = "dashed", linewidth = 1) +
+      labs(title = "Distribution of Log2 Fold Changes (Male/Female)",
+           subtitle = "Red: no change, Orange: ±1.5-fold threshold",
+           x = "Log2 Fold Change",
+           y = "Count") +
+      xlim(-3, 3) +
+      theme_minimal()
+  }
+}
+```
+
+Among the `r length(fold_changes)` analytes evaluated,
+`r round(large_fc_prop * 100, 1)`% show a male/female ratio greater than
+1.5-fold, well below concerning thresholds. The distribution centered near
+zero confirms that grouped normalization by `Sex` is _not required_ for this
+dataset.
+
+However, `Sex` can be a useful demonstration variable - we can show how the 
+feature works in a scenario where either approach is acceptable. In real
+applications requiring grouped normalization (e.g., disease vs. control with 
+widespread protein changes), the decision would be clear from the fold change 
+distribution.
+
+#### Applying Grouped Normalization
+
+To normalize by Sex:
+
+```{r custom-grouping}
+grouped_norm_adat <- medianNormalize(unnormalized_adat, by = "Sex")
+```
+
+Using `by = "Sex"` computes separate reference medians for each sex group
+and scales samples within their own group. This preserves known sex-linked
+differences (e.g., sex-hormone proteins) that would otherwise be absorbed into
+a global reference median.
+
+```{r compare-grouped-sf}
+data.frame(
+  SampleId   = normalized_adat$SampleId[1:8],
+  Sex        = normalized_adat$Sex[1:8],
+  Default_SF = normalized_adat$NormScale_0_5[1:8],
+  Grouped_SF = grouped_norm_adat$NormScale_0_5[1:8]
+)
+```
+
+To demonstrate how grouped normalization works, we can examine 
+Prostate-specific antigen (PSA), which shows strong biological differences 
+between males and females:
+
+<details>
+<summary>Show code</summary>
+```{r grouped-normalization-validation-1, echo = TRUE, eval = FALSE}
+# PSA is a well-known sex-associated protein
+psa_analyte <- "seq.8468.19"  # Prostate-specific antigen
+
+# Calculate the effect of Sex on PSA across normalization approaches
+calc_sex_effect <- function(adat, label) {
+  study_data <- adat |> filter(SampleType == "Sample")
+  male_values <- study_data[[psa_analyte]][study_data$Sex == "M"]
+  female_values <- study_data[[psa_analyte]][study_data$Sex == "F"]
+  
+  # Calculate fold change
+  fold_change <- mean(male_values, na.rm = TRUE) / mean(female_values, na.rm = TRUE)
+  
+  # Perform t-test
+  t_result <- t.test(male_values, female_values)
+  
+  data.frame(
+    State = label,
+    Male_mean = round(mean(male_values, na.rm = TRUE), 0),
+    Female_mean = round(mean(female_values, na.rm = TRUE), 0),
+    Fold_change = round(fold_change, 2),
+    P_value = ifelse(t_result$p.value < 0.001, "<0.001", round(t_result$p.value, 3)),
+    stringsAsFactors = FALSE
+  )
+}
+
+sex_comparison <- rbind(
+  calc_sex_effect(unnormalized_adat, "Unnormalized"),
+  calc_sex_effect(normalized_adat, "Default (pooled)"),
+  calc_sex_effect(grouped_norm_adat, "Grouped (by Sex)")
+)
+
+knitr::kable(sex_comparison, 
+             caption = "PSA levels by sex across normalization approaches",
+             col.names = c("Normalization", "Male Mean", "Female Mean", "Fold Change", "p-value"))
+```
+</details>
+
+```{r grouped-normalization-validation-2, echo = FALSE}
+# PSA is a well-known sex-associated protein
+psa_analyte <- "seq.8468.19"  # Prostate-specific antigen
+
+# Calculate the effect of Sex on PSA across normalization approaches
+calc_sex_effect <- function(adat, label) {
+  study_data <- adat |> filter(SampleType == "Sample")
+  male_values <- study_data[[psa_analyte]][study_data$Sex == "M"]
+  female_values <- study_data[[psa_analyte]][study_data$Sex == "F"]
+  
+  # Calculate fold change
+  fold_change <- mean(male_values, na.rm = TRUE) / mean(female_values, na.rm = TRUE)
+  
+  # Perform t-test
+  t_result <- t.test(male_values, female_values)
+  
+  data.frame(
+    State = label,
+    Male_mean = round(mean(male_values, na.rm = TRUE), 0),
+    Female_mean = round(mean(female_values, na.rm = TRUE), 0),
+    Fold_change = round(fold_change, 2),
+    P_value = ifelse(t_result$p.value < 0.001, "<0.001", round(t_result$p.value, 3)),
+    stringsAsFactors = FALSE
+  )
+}
+
+sex_comparison <- rbind(
+  calc_sex_effect(unnormalized_adat, "Unnormalized"),
+  calc_sex_effect(normalized_adat, "Default (pooled)"),
+  calc_sex_effect(grouped_norm_adat, "Grouped (by Sex)")
+)
+
+knitr::kable(sex_comparison, 
+             caption = "PSA levels by sex across normalization approaches",
+             col.names = c("Normalization", "Male Mean", "Female Mean", "Fold Change", "p-value"))
+```
+
+Males have ~7-fold higher PSA levels than females, reflecting the biological
+reality that PSA is primarily produced by the prostate gland. This example 
+illustrates how grouped normalization (fold change = 
+`r sex_comparison$Fold_change[3]`) can preserve biological differences more 
+accurately than default pooled normalization (fold change = 
+`r sex_comparison$Fold_change[2]`), which slightly inflates the effect. In 
+scenarios where grouped normalization is truly required, these differences 
+would be more pronounced.
+
+------------------------------------------------------------------------
+
+## Quality Assessment
+
+Median normalization should reduce technical variability while preserving 
+biological signal. Successful normalization will show:
+
+- **Reduced coefficient of variation (CV)** across analytes (lower CV indicates better precision)
+- **Scale factors clustered near 1.0** with minimal spread (indicating consistent normalization)
+- **Preserved biological patterns** in sample relationships (e.g., expected groupings remain visible)
+
+Review the metrics below to confirm normalization improved data quality without over-correction.
+
+### Population-Level Effects
+
+<details>
+<summary>Show code</summary>
+```{r population-comparison-1, echo = TRUE, eval = FALSE}
+# Calculate population-level statistics for each state
+calc_population_stats <- function(adat, label) {
+  study_data <- adat |> filter(SampleType == "Sample")
+  analyte_data <- study_data[, getAnalytes(adat)]
+  
+  data.frame(
+    State = label,
+    n_samples = nrow(study_data),
+    mean_RFU = round(mean(unlist(analyte_data), na.rm = TRUE), 0),
+    median_RFU = round(median(unlist(analyte_data), na.rm = TRUE), 0),
+    cv_RFU = round(sd(unlist(analyte_data), na.rm = TRUE) / 
+                   mean(unlist(analyte_data), na.rm = TRUE) * 100, 2),
+    stringsAsFactors = FALSE
+  )
+}
+
+comparison_stats <- rbind(
+  calc_population_stats(unnormalized_adat, "Unnormalized"),
+  calc_population_stats(normalized_adat, "Median Normalized")
+)
+
+knitr::kable(comparison_stats, 
+             caption = "Population-level RFU statistics across normalization states")
+```
+</details>
+
+```{r population-comparison-2, echo = FALSE}
+# Calculate population-level statistics for each state
+calc_population_stats <- function(adat, label) {
+  study_data <- adat |> filter(SampleType == "Sample")
+  analyte_data <- study_data[, getAnalytes(adat)]
+  
+  data.frame(
+    State = label,
+    n_samples = nrow(study_data),
+    mean_RFU = round(mean(unlist(analyte_data), na.rm = TRUE), 0),
+    median_RFU = round(median(unlist(analyte_data), na.rm = TRUE), 0),
+    cv_RFU = round(sd(unlist(analyte_data), na.rm = TRUE) / 
+                   mean(unlist(analyte_data), na.rm = TRUE) * 100, 2),
+    stringsAsFactors = FALSE
+  )
+}
+
+comparison_stats <- rbind(
+  calc_population_stats(unnormalized_adat, "Unnormalized"),
+  calc_population_stats(normalized_adat, "Median Normalized")
+)
+
+knitr::kable(comparison_stats, 
+             caption = "Population-level RFU statistics across normalization states")
+```
+
+Median normalization reduces the population-level CV compared to unnormalized 
+data, indicating improved technical consistency. Note that mean and median RFU 
+values remain similar, showing that signal intensity is preserved.
+
+### Scale Factor Distribution
+
+<details>
+<summary>Show code</summary>
+```{r scale-factor-plot-1, echo = TRUE, eval = FALSE}
+sf_cols <- grep("^NormScale_", names(normalized_adat), value = TRUE)
+
+study_sf <- normalized_adat |>
+  filter(SampleType == "Sample") |>
+  select(SampleId, all_of(sf_cols)) |>
+  pivot_longer(all_of(sf_cols), names_to = "Dilution", values_to = "ScaleFactor") |>
+  mutate(Dilution = gsub("NormScale_", "", Dilution))
+
+med_sf <- study_sf |>
+  group_by(Dilution) |>
+  summarise(med = median(ScaleFactor, na.rm = TRUE), .groups = "drop")
+
+ggplot(study_sf, aes(x = ScaleFactor)) +
+  geom_histogram(bins = 30, alpha = 0.7, fill = "steelblue") +
+  geom_vline(xintercept = 1, color = "red", linetype = "dashed") +
+  geom_text(data = med_sf, aes(x = Inf, y = Inf, 
+                                label = paste0("Median: ", round(med, 3))),
+            hjust = 1.1, vjust = 1.5, size = 3, color = "black") +
+  facet_wrap(~Dilution, scales = "free_x") +
+  labs(title = "Normalization Scale Factors by Dilution Group",
+       subtitle = "Red line: 1.0 reference",
+       x = "Scale Factor", y = "Count") +
+  theme_minimal()
+```
+</details>
+
+```{r scale-factor-plot-2, fig.width=8, fig.height=5, echo = FALSE}
+sf_cols <- grep("^NormScale_", names(normalized_adat), value = TRUE)
+
+study_sf <- normalized_adat |>
+  filter(SampleType == "Sample") |>
+  select(SampleId, all_of(sf_cols)) |>
+  pivot_longer(all_of(sf_cols), names_to = "Dilution", values_to = "ScaleFactor") |>
+  mutate(Dilution = gsub("NormScale_", "", Dilution))
+
+med_sf <- study_sf |>
+  group_by(Dilution) |>
+  summarise(med = median(ScaleFactor, na.rm = TRUE), .groups = "drop")
+
+ggplot(study_sf, aes(x = ScaleFactor)) +
+  geom_histogram(bins = 30, alpha = 0.7, fill = "steelblue") +
+  geom_vline(xintercept = 1, color = "red", linetype = "dashed") +
+  geom_text(data = med_sf, aes(x = Inf, y = Inf, 
+                                label = paste0("Median: ", round(med, 3))),
+            hjust = 1.1, vjust = 1.5, size = 3, color = "black") +
+  facet_wrap(~Dilution, scales = "free_x") +
+  labs(title = "Normalization Scale Factors by Dilution Group",
+       subtitle = "Red line: 1.0 reference",
+       x = "Scale Factor", y = "Count") +
+  theme_minimal()
+```
+
+Scale factors should cluster near 1.0. Samples with factors below 0.5 or
+above 2.0 warrant investigation. See the
+[Pre-Processing SomaScan](pre-processing.html) vignette for detailed
+QC criteria and the `RowCheck` column discussion.
+
+If scale factors show systematic patterns (e.g., consistently shifted from 1.0
+across all samples or specific groups), this may indicate:
+
+- **Median slightly above/below 1.0 but tightly distributed**: Normal variation, 
+  no concern if all samples cluster together
+- **Bimodal distribution**: May indicate batch effects or sample collection 
+  differences - investigate whether distinct groups correspond to known technical 
+  or biological factors
+- **Consistent shift for specific dilutions**: Could reflect dilution-specific 
+  technical issues during sample processing
+- **Wide spread (many samples < 0.5 or > 2.0)**: Suggests poor quality samples 
+  or reference mismatch - review sample collection protocols and consider 
+  removing outlier samples
+
+### Precision Improvement
+
+<details>
+<summary>Show code</summary>
+```{r cv-reduction-plot-1, echo = TRUE, eval = FALSE}
+# Get analytes
+analytes <- getAnalytes(unnormalized_adat)
+
+# Calculate CV for all analytes before and after normalization
+study_unnorm <- unnormalized_adat |> filter(SampleType == "Sample")
+study_norm <- normalized_adat |> filter(SampleType == "Sample")
+
+cv_unnorm <- sapply(analytes, function(x) {
+  vals <- study_unnorm[[x]]
+  sd(vals, na.rm = TRUE) / mean(vals, na.rm = TRUE) * 100
+})
+
+cv_norm <- sapply(analytes, function(x) {
+  vals <- study_norm[[x]]
+  sd(vals, na.rm = TRUE) / mean(vals, na.rm = TRUE) * 100
+})
+
+# Create CV comparison data
+cv_data <- data.frame(
+  CV = c(cv_unnorm, cv_norm),
+  State = rep(c("Unnormalized", "Median Normalized"), each = length(cv_unnorm)),
+  stringsAsFactors = FALSE
+)
+cv_data$State <- factor(cv_data$State, levels = c("Unnormalized", "Median Normalized"))
+
+# Plot CV distributions
+ggplot(cv_data, aes(x = CV, fill = State)) +
+  geom_histogram(alpha = 0.7, bins = 50, position = "identity") +
+  scale_fill_manual(values = c("Unnormalized" = "#E69F00", "Median Normalized" = "#56B4E9")) +
+  labs(title = "Distribution of Analyte Coefficients of Variation",
+       subtitle = "Lower CV indicates better precision",
+       x = "Coefficient of Variation (%)",
+       y = "Count") +
+  theme_minimal()
+
+# Summary statistics
+cv_summary <- cv_data |>
+  group_by(State) |>
+  summarise(
+    Mean_CV = round(mean(CV, na.rm = TRUE), 2),
+    Median_CV = round(median(CV, na.rm = TRUE), 2),
+    SD_CV = round(sd(CV, na.rm = TRUE), 2),
+    .groups = "drop"
+  )
+
+knitr::kable(cv_summary, 
+             caption = "Coefficient of Variation summary statistics")
+```
+</details>
+
+```{r cv-reduction-plot-2, fig.width=8, fig.height=6, echo = FALSE}
+# Get analytes
+analytes <- getAnalytes(unnormalized_adat)
+
+# Calculate CV for all analytes before and after normalization
+study_unnorm <- unnormalized_adat |> filter(SampleType == "Sample")
+study_norm <- normalized_adat |> filter(SampleType == "Sample")
+
+cv_unnorm <- sapply(analytes, function(x) {
+  vals <- study_unnorm[[x]]
+  sd(vals, na.rm = TRUE) / mean(vals, na.rm = TRUE) * 100
+})
+
+cv_norm <- sapply(analytes, function(x) {
+  vals <- study_norm[[x]]
+  sd(vals, na.rm = TRUE) / mean(vals, na.rm = TRUE) * 100
+})
+
+# Create CV comparison data
+cv_data <- data.frame(
+  CV = c(cv_unnorm, cv_norm),
+  State = rep(c("Unnormalized", "Median Normalized"), each = length(cv_unnorm)),
+  stringsAsFactors = FALSE
+)
+cv_data$State <- factor(cv_data$State, levels = c("Unnormalized", "Median Normalized"))
+
+# Plot CV distributions
+ggplot(cv_data, aes(x = CV, fill = State)) +
+  geom_histogram(alpha = 0.7, bins = 50, position = "identity") +
+  scale_fill_manual(values = c("Unnormalized" = "#E69F00", "Median Normalized" = "#56B4E9")) +
+  labs(title = "Distribution of Analyte Coefficients of Variation",
+       subtitle = "Lower CV indicates better precision",
+       x = "Coefficient of Variation (%)",
+       y = "Count") +
+  theme_minimal()
+
+# Summary statistics
+cv_summary <- cv_data |>
+  group_by(State) |>
+  summarise(
+    Mean_CV = round(mean(CV, na.rm = TRUE), 2),
+    Median_CV = round(median(CV, na.rm = TRUE), 2),
+    SD_CV = round(sd(CV, na.rm = TRUE), 2),
+    .groups = "drop"
+  )
+
+knitr::kable(cv_summary, 
+             caption = "Coefficient of Variation summary statistics")
+```
+
+The leftward shift in CV distribution indicates improved technical
+consistency after normalization. Both mean and median CV values are reduced 
+for median normalized data compared to unnormalized, demonstrating the 
+effectiveness of the normalization procedure.
+
+### Biological Signal Preservation
+
+An important quality check is confirming that normalization removes technical
+variation without distorting biological relationships. We can verify this by
+examining analytes known to associate with age. The example data includes an 
+`Age` variable that we'll use to test whether age-associated correlations are 
+preserved after normalization:
+
+<details>
+<summary>Show code</summary>
+```{r age-correlation-1, echo = TRUE, eval = FALSE}
+# Select analytes with known age associations
+age_analytes <- c(
+  "seq.3045.72",   # Pleiotrophin
+  "seq.4374.45",   # Growth/differentiation factor 15
+  "seq.15640.54",  # Transgelin
+  "seq.6392.7",    # WISP2
+  "seq.4496.60"    # Macrophage metalloelastase
+)
+
+# Calculate correlations with age before and after normalization
+age_cors_unnorm <- sapply(age_analytes, function(apt) {
+  cor(study_unnorm[[apt]], study_unnorm$Age, use = "complete.obs")
+})
+
+age_cors_norm <- sapply(age_analytes, function(apt) {
+  cor(study_norm[[apt]], study_norm$Age, use = "complete.obs")
+})
+
+# Test if correlations differ significantly using Fisher's z-transformation
+n <- sum(complete.cases(study_unnorm$Age))
+z_diff <- sapply(seq_along(age_analytes), function(i) {
+  # Fisher's z-transformation
+  z1 <- 0.5 * log((1 + age_cors_unnorm[i]) / (1 - age_cors_unnorm[i]))
+  z2 <- 0.5 * log((1 + age_cors_norm[i]) / (1 - age_cors_norm[i]))
+  # Test statistic
+  z_diff <- (z1 - z2) / sqrt(2 / (n - 3))
+  # Two-tailed p-value
+  p_val <- 2 * (1 - pnorm(abs(z_diff)))
+  return(p_val)
+})
+
+# Get target names
+target_names <- getAnalyteInfo(unnormalized_adat) |>
+  filter(AptName %in% age_analytes) |>
+  select(AptName, Target = TargetFullName)
+
+# Create comparison table
+age_cor_comparison <- data.frame(
+  Target = target_names$Target[match(age_analytes, target_names$AptName)],
+  Cor_Unnormalized = round(age_cors_unnorm, 3),
+  Cor_Normalized = round(age_cors_norm, 3),
+  Difference = round(age_cors_norm - age_cors_unnorm, 3),
+  P_value = ifelse(z_diff < 0.001, "<0.001", round(z_diff, 3))
+)
+
+knitr::kable(age_cor_comparison,
+             caption = "Age correlations before and after median normalization",
+             col.names = c("Target", "Unnormalized", "Median Normalized", "Difference", "p-value"))
+
+# Visualize age association for top analyte
+top_analyte <- age_analytes[1]
+top_target <- target_names$Target[target_names$AptName == top_analyte]
+
+# Create long-format data for plotting
+plot_data <- data.frame(
+  Age = rep(study_unnorm$Age, 2),
+  RFU = c(study_unnorm[[top_analyte]], study_norm[[top_analyte]]),
+  State = rep(c("Unnormalized", "Median Normalized"), each = nrow(study_unnorm))
+)
+plot_data$State <- factor(plot_data$State, levels = c("Unnormalized", "Median Normalized"))
+
+ggplot(plot_data, aes(x = Age, y = RFU, color = State)) +
+  geom_point(alpha = 0.5, size = 2) +
+  geom_smooth(method = "lm", se = TRUE, linewidth = 1) +
+  scale_color_manual(values = c("Unnormalized" = "#E69F00", "Median Normalized" = "#56B4E9")) +
+  labs(title = paste("Age Association:", top_target),
+       subtitle = paste0("Unnormalized r = ", round(age_cors_unnorm[1], 3), 
+                        ", Normalized r = ", round(age_cors_norm[1], 3)),
+       x = "Age (years)",
+       y = "RFU",
+       color = "Normalization") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+</details>
+
+```{r age-correlation-2, echo = FALSE, fig.width=8, fig.height=6}
+# Select analytes with known age associations
+age_analytes <- c(
+  "seq.3045.72",   # Pleiotrophin
+  "seq.4374.45",   # Growth/differentiation factor 15
+  "seq.15640.54",  # Transgelin
+  "seq.6392.7",    # WISP2
+  "seq.4496.60"    # Macrophage metalloelastase
+)
+
+# Calculate correlations with age before and after normalization
+age_cors_unnorm <- sapply(age_analytes, function(apt) {
+  cor(study_unnorm[[apt]], study_unnorm$Age, use = "complete.obs")
+})
+
+age_cors_norm <- sapply(age_analytes, function(apt) {
+  cor(study_norm[[apt]], study_norm$Age, use = "complete.obs")
+})
+
+# Test if correlations differ significantly using Fisher's z-transformation
+n <- sum(complete.cases(study_unnorm$Age))
+z_diff <- sapply(seq_along(age_analytes), function(i) {
+  # Fisher's z-transformation
+  z1 <- 0.5 * log((1 + age_cors_unnorm[i]) / (1 - age_cors_unnorm[i]))
+  z2 <- 0.5 * log((1 + age_cors_norm[i]) / (1 - age_cors_norm[i]))
+  # Test statistic
+  z_diff <- (z1 - z2) / sqrt(2 / (n - 3))
+  # Two-tailed p-value
+  p_val <- 2 * (1 - pnorm(abs(z_diff)))
+  return(p_val)
+})
+
+# Get target names
+target_names <- getAnalyteInfo(unnormalized_adat) |>
+  filter(AptName %in% age_analytes) |>
+  select(AptName, Target = TargetFullName)
+
+# Create comparison table
+age_cor_comparison <- data.frame(
+  Target = target_names$Target[match(age_analytes, target_names$AptName)],
+  Cor_Unnormalized = round(age_cors_unnorm, 3),
+  Cor_Normalized = round(age_cors_norm, 3),
+  Difference = round(age_cors_norm - age_cors_unnorm, 3),
+  P_value = ifelse(z_diff < 0.001, "<0.001", round(z_diff, 3))
+)
+
+knitr::kable(age_cor_comparison,
+             caption = "Age correlations before and after median normalization",
+             col.names = c("Target", "Unnormalized", "Median Normalized", "Difference", "p-value"))
+```
+
+The age correlations remain strong and statistically unchanged after 
+normalization (all p-values > 0.05), demonstrating that the biological 
+relationships are preserved. While correlation coefficients may shift slightly, 
+Fisher's z-test confirms these differences are not statistically significant. 
+To visualize this relationship more clearly, we examine a scatter plot for the 
+analyte with the strongest correlation, Pleiotrophin:
+
+```{r age-scatterplot, echo = FALSE, fig.width=8, fig.height=6, message = FALSE}
+# Visualize age association for top analyte
+top_analyte <- age_analytes[1]
+top_target <- target_names$Target[target_names$AptName == top_analyte]
+
+# Create long-format data for plotting
+plot_data <- data.frame(
+  Age = rep(study_unnorm$Age, 2),
+  RFU = c(study_unnorm[[top_analyte]], study_norm[[top_analyte]]),
+  State = rep(c("Unnormalized", "Median Normalized"), each = nrow(study_unnorm))
+)
+plot_data$State <- factor(plot_data$State, levels = c("Unnormalized", "Median Normalized"))
+
+ggplot(plot_data, aes(x = Age, y = RFU, color = State)) +
+  geom_point(alpha = 0.5, size = 2) +
+  geom_smooth(method = "lm", se = TRUE, linewidth = 1) +
+  scale_color_manual(values = c("Unnormalized" = "#E69F00", "Median Normalized" = "#56B4E9")) +
+  labs(title = paste("Age Association:", top_target),
+       subtitle = paste0("Unnormalized r = ", round(age_cors_unnorm[1], 3), 
+                        ", Normalized r = ", round(age_cors_norm[1], 3)),
+       x = "Age (years)",
+       y = "RFU",
+       color = "Normalization") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+The scatter plot shows that the biological relationship is preserved - both 
+regression lines have similar slopes, confirming that median normalization 
+successfully removes technical variation without obscuring the age-associated 
+signal.
+
+### Comparison to ANML Normalization
+
+The example data was originally normalized using ANML (Adaptive 
+Normalization via Maximum-Likelihood), the standard normalization for
+most SomaScan deliveries. How does median normalization compare?
+
+<details>
+<summary>Show code</summary>
+```{r anml-comparison-1, echo = TRUE, eval = FALSE}
+# Calculate CVs for ANML-normalized data
+study_anml <- example_data |> filter(SampleType == "Sample")
+
+cv_anml <- sapply(analytes, function(x) {
+  vals <- study_anml[[x]]
+  sd(vals, na.rm = TRUE) / mean(vals, na.rm = TRUE) * 100
+})
+
+# Create 3-way comparison data
+cv_comp_data <- data.frame(
+  CV = c(cv_unnorm, cv_anml, cv_norm),
+  Method = rep(c("Unnormalized", "ANML", "Median"), each = length(analytes)),
+  stringsAsFactors = FALSE
+)
+cv_comp_data$Method <- factor(cv_comp_data$Method, 
+                               levels = c("Unnormalized", "ANML", "Median"))
+
+# Plot 3-way comparison
+ggplot(cv_comp_data, aes(x = CV, fill = Method)) +
+  geom_histogram(alpha = 0.6, bins = 50, position = "identity") +
+  scale_fill_manual(values = c("Unnormalized" = "#E69F00", 
+                                "ANML" = "#56B4E9", 
+                                "Median" = "#009E73")) +
+  labs(title = "Comparison of Normalization Methods",
+       subtitle = "Distribution of Analyte Coefficients of Variation",
+       x = "Coefficient of Variation (%)",
+       y = "Count") +
+  theme_minimal() +
+  xlim(0, 200)
+
+# Summary table
+method_summary <- cv_comp_data |>
+  group_by(Method) |>
+  summarise(
+    Mean_CV = round(mean(CV, na.rm = TRUE), 2),
+    Median_CV = round(median(CV, na.rm = TRUE), 2),
+    Pct_Below_50 = round(100 * sum(CV < 50, na.rm = TRUE) / n(), 1),
+    .groups = "drop"
+  )
+
+knitr::kable(method_summary,
+             caption = "Normalization method comparison",
+             col.names = c("Method", "Mean CV (%)", "Median CV (%)", "% Analytes CV < 50%"))
+```
+</details>
+
+```{r anml-comparison-2, fig.width=8, fig.height=6, echo = FALSE, warning = FALSE}
+# Calculate CVs for ANML-normalized data
+study_anml <- example_data |> filter(SampleType == "Sample")
+
+cv_anml <- sapply(analytes, function(x) {
+  vals <- study_anml[[x]]
+  sd(vals, na.rm = TRUE) / mean(vals, na.rm = TRUE) * 100
+})
+
+# Create 3-way comparison data
+cv_comp_data <- data.frame(
+  CV = c(cv_unnorm, cv_anml, cv_norm),
+  Method = rep(c("Unnormalized", "ANML", "Median"), each = length(analytes)),
+  stringsAsFactors = FALSE
+)
+cv_comp_data$Method <- factor(cv_comp_data$Method, 
+                               levels = c("Unnormalized", "ANML", "Median"))
+
+# Plot 3-way comparison
+ggplot(cv_comp_data, aes(x = CV, fill = Method)) +
+  geom_histogram(alpha = 0.6, bins = 50, position = "identity") +
+  scale_fill_manual(values = c("Unnormalized" = "#E69F00", 
+                                "ANML" = "#56B4E9", 
+                                "Median" = "#009E73")) +
+  labs(title = "Comparison of Normalization Methods",
+       subtitle = "Distribution of Analyte Coefficients of Variation",
+       x = "Coefficient of Variation (%)",
+       y = "Count") +
+  theme_minimal() +
+  xlim(0, 200)
+
+# Summary table
+method_summary <- cv_comp_data |>
+  group_by(Method) |>
+  summarise(
+    Mean_CV = round(mean(CV, na.rm = TRUE), 2),
+    Median_CV = round(median(CV, na.rm = TRUE), 2),
+    Pct_Below_50 = round(100 * sum(CV < 50, na.rm = TRUE) / n(), 1),
+    .groups = "drop"
+  )
+
+knitr::kable(method_summary,
+             caption = "Normalization method comparison",
+             col.names = c("Method", "Mean CV (%)", "Median CV (%)", "% Analytes CV < 50%"))
+```
+
+Both ANML and median normalization substantially reduce technical
+variation compared to unnormalized data. In this dataset, median
+normalization achieves slightly better precision 
+(`r method_summary$Pct_Below_50[method_summary$Method == "Median"]`% vs 
+`r method_summary$Pct_Below_50[method_summary$Method == "ANML"]`% of
+analytes with CV < 50%).
+
+**When to choose:**
+
+- **ANML**: Standard for most SomaScan deliveries; uses adaptive reference 
+  from large healthy population; recommended when combining data with 
+  existing ANML-normalized datasets
+- **Median normalization**: Useful for re-normalizing to study-specific 
+  reference, combining separately processed batches, or normalizing groups 
+  separately when biological differences are expected
+
+For most analyses on standard deliveries, either method is appropriate.
+
+------------------------------------------------------------------------
+
+## Questions
+
+As always, if you have any normalization questions,
+we are here to help. Please reach out to us via:
+
+* GitHub [SUPPORT](https://somalogic.github.io/SomaDataIO/SUPPORT.html)
+* Global Scientific Engagement Team: <techsupport@somalogic.com>
+* General SomaScan inquiries: <support@somalogic.com>
